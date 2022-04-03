@@ -13,6 +13,7 @@
 TARGET=
 HOST=
 CLEAN=
+ERROR=
 while [[ $1 =~ ^- ]]; do
     case $1 in
     -t)
@@ -48,14 +49,19 @@ while [[ $1 =~ ^- ]]; do
         VERBOSE="$1"
         shift
         ;;
+
+    *)
+        ERROR=1
+        set --
     esac
 done
 
 SRC=${SRC:-/dev/mmcblk0}
-if [[ -z "$HOST" && -z "$TARGET" ]] ||
+if [[ -n "$ERROR" ]] || [[ -z "$HOST" && -z "$TARGET" ]] ||
  [[ $# -gt 0 ]]; then
-   echo "Usage: $0 [-h hostname] [-t targetdir] [-c clean]" >&2
-   echo " Note: at least one of <hostname> or <targetdir> are required"
+   echo "Usage: $0 [-h [user@]hostname] [-t targetdir] [-c clean] [-v] [-k KEEP]" >&2
+   echo " Note: at least one of <hostname> or <targetdir> are required" >&2
+   echo " KEEP is an integer >=1" >&2
    exit 1
 fi
 
@@ -72,16 +78,6 @@ if [[ -n "$HOST" ]]; then
   RC=$?
   ((RC)) && exit $RC
 fi
-
-if [[ -n "$KEEP" && -d $TARGET ]]; then
-    (   . $TARGET/metadata.txt;
-        cp -al $TARGET $TARGET-$DATE
-    )
-    
-    echo rm -rf $(ls -d $TARGET-* | head -n -$KEEP) >&2
-    exit
-fi
-
 
 [[ -n "$CLEAN" ]] && rm -rf "$TARGET"
 mkdir -p $TARGET
@@ -103,16 +99,30 @@ $REMOTE sudo lsblk -Po name,type,fstype,label,mountpoint,partuuid $SRC > $TARGET
 MNT_PREFIX=/tmp/mnt-$$
 while read pairs; do
     eval "$pairs"
+
     if [[ "$TYPE" == "part" ]]; then
         TAG="${LABEL:-$NAME}"
         MNT=$MNT_PREFIX/$TAG/
+        if [[ -z "$MOUNTPOINT" ]]; then
+            # Looks like this is an unmounted partition, maybe an overlayfs is in use?
+            MOUNTCMD="mount -o ro '/dev/$NAME' '$MNT'"
+        else
+            MOUNTCMD="mount -o ro,bind '$MOUNTPOINT' '$MNT'"
+        fi
         $REMOTE sudo mkdir -p "$MNT"
-        $REMOTE sudo mount -o ro,bind "$MOUNTPOINT" "$MNT"
+        $REMOTE sudo $MOUNTCMD
         rsync ${VERBOSE:+-v} --rsync-path="sudo rsync" -e "$REMOTE_CMD" --delete -arz "$RSYNC_HOST""$MNT"/ $TARGET/$TAG/ 
         $REMOTE sudo umount $MNT
     fi
 done <$TARGET/lsblk.txt
 $REMOTE sudo rm -rf /tmp/mnt-$$/
 
-
+if [[ -n "$KEEP" ]]; then
+    (   . $TARGET/metadata.txt;
+        sh -x -c "cp -al '$TARGET' '$TARGET-$DATE'"
+    )
+    
+    echo "# keep $KEEP would remove:" >&2
+    echo "rm -rf $(ls -d $TARGET-* | head -n -$KEEP)" >&2
+fi
 
