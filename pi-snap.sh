@@ -74,9 +74,9 @@ if [[ -n "$HOST" ]]; then
   RSYNC_HOST="$HOST:"
   REMOTE="$REMOTE_CMD -n $HOST"
   ssh -o Compression=yes -o ControlPath=/tmp/cp-$$ -o ControlMaster=yes -o ControlPersist=0 $HOST /bin/true
-  trap "ssh -o ControlPath=/tmp/cp-$$ -O stop $HOST" EXIT
   RC=$?
   ((RC)) && exit $RC
+  trap "ssh -o ControlPath=/tmp/cp-$$ -O stop $HOST" EXIT
 fi
 
 [[ -n "$CLEAN" ]] && rm -rf "$TARGET"
