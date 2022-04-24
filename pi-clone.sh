@@ -67,7 +67,7 @@ while read pairs; do
         MOUNTPOINT=$MNT/$TAG
         mkdir -p $MOUNTPOINT
         mount ${DEVICE}$n $MOUNTPOINT || exit $?
-        rsync -arvz $FROZEN/$TAG/. $MOUNTPOINT/
+        (cd $FROZEN/$TAG; rsync -arvz . $MOUNTPOINT/)
     fi
 
     # Patch up the boot filesystem and the fstab on the rootfs
