@@ -56,10 +56,11 @@ while [[ $1 =~ ^- ]]; do
     esac
 done
 
+# Default to backing up local device
 SRC=${SRC:-/dev/mmcblk0}
 if [[ -n "$ERROR" ]] || [[ -z "$HOST" && -z "$TARGET" ]] ||
  [[ $# -gt 0 ]]; then
-   echo "Usage: $0 [-h [user@]hostname] [-t targetdir] [-c clean] [-v] [-k KEEP]" >&2
+   echo "Usage: $0 [-h [user@]hostname] [-s srcdevice] [-t targetdir] [-c clean] [-v] [-k KEEP]" >&2
    echo " Note: at least one of <hostname> or <targetdir> are required" >&2
    echo " KEEP is an integer >=1" >&2
    exit 1
@@ -73,11 +74,24 @@ if [[ -n "$HOST" ]]; then
   REMOTE_CMD="ssh -o ControlPath=/tmp/cp-$$"
   RSYNC_HOST="$HOST:"
   REMOTE="$REMOTE_CMD -n $HOST"
-  ssh -o Compression=yes -o ControlPath=/tmp/cp-$$ -o ControlMaster=yes -o ControlPersist=0 $HOST /bin/true
+  ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o Compression=yes -o ControlPath=/tmp/cp-$$ -o ControlMaster=yes -o ControlPersist=0 $HOST /bin/true
   RC=$?
   ((RC)) && exit $RC
   trap "ssh -o ControlPath=/tmp/cp-$$ -O stop $HOST" EXIT
 fi
+
+remote() {
+    if [[ -z $REMOTE ]]; then
+        ( set -x
+            "$@"
+        )
+    else
+      ( set -x
+        $REMOTE "$@"
+      )
+    fi
+}
+
 
 [[ -n "$CLEAN" ]] && rm -rf "$TARGET"
 mkdir -p $TARGET
@@ -92,9 +106,9 @@ echo DATE=$(date +%FT%T) > $TARGET/metadata.txt
 echo HOST=$HOST >> $TARGET/metadata.txt
 
 rm -f $TARGET/sfdisk.txt
-$REMOTE sudo sfdisk -d $SRC > $TARGET/sfdisk.txt
+remote sudo sfdisk -d $SRC > $TARGET/sfdisk.txt
 rm -f $TARGET/lsblk.txt
-$REMOTE sudo lsblk -Po name,type,fstype,label,mountpoint,partuuid $SRC > $TARGET/lsblk.txt
+remote sudo lsblk -Po name,type,fstype,label,mountpoint,partuuid $SRC > $TARGET/lsblk.txt
 
 MNT_PREFIX=/tmp/mnt-$$
 while read pairs; do
@@ -105,17 +119,18 @@ while read pairs; do
         MNT=$MNT_PREFIX/$TAG/
         if [[ -z "$MOUNTPOINT" ]]; then
             # Looks like this is an unmounted partition, maybe an overlayfs is in use?
-            MOUNTCMD="mount -o ro '/dev/$NAME' '$MNT'"
+            MOUNTCMD=(mount -o ro /dev/$NAME $MNT)
         else
-            MOUNTCMD="mount -o ro,bind '$MOUNTPOINT' '$MNT'"
+            MOUNTCMD=(mount -o ro,bind $MOUNTPOINT $MNT)
         fi
-        $REMOTE sudo mkdir -p "$MNT"
-        $REMOTE sudo $MOUNTCMD
+        remote sudo mkdir -p "$MNT"
+        remote ls -ld $MNT
+        remote sudo "${MOUNTCMD[@]}"
         rsync ${VERBOSE:+-v} --rsync-path="sudo rsync" -e "$REMOTE_CMD" --delete -arz "$RSYNC_HOST""$MNT"/ $TARGET/$TAG/ 
-        $REMOTE sudo umount $MNT
+        remote sudo umount $MNT
     fi
 done <$TARGET/lsblk.txt
-$REMOTE sudo rm -rf /tmp/mnt-$$/
+remote sudo rm -rf /tmp/mnt-$$/
 
 if [[ -n "$KEEP" ]]; then
     (   . $TARGET/metadata.txt;
