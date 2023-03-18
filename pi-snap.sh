@@ -70,10 +70,13 @@ REMOTE=
 RSYNC_REMOTE=
 RSYNC_HOST=
 if [[ -n "$HOST" ]]; then
-  TARGET=${TARGET:-$HOST.snap}
+  TARGET=${TARGET:-$HOST/$HOST.snap}
   REMOTE_CMD="ssh -o ControlPath=/tmp/cp-$$"
   RSYNC_HOST="$HOST:"
   REMOTE="$REMOTE_CMD -n $HOST"
+  # unset LC_ALL because our local locale is not necessarily available on the target
+  unset LC_ALL
+  # set up persistent controlpath
   ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o Compression=yes -o ControlPath=/tmp/cp-$$ -o ControlMaster=yes -o ControlPersist=0 $HOST /bin/true
   RC=$?
   ((RC)) && exit $RC
