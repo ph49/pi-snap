@@ -71,7 +71,7 @@ while read pairs; do
     fi
 
     # Patch up the boot filesystem and the fstab on the rootfs
-    if [[ "$LABEL" == boot ]]; then
+    if [[ "${LABEL}" == "boot" || "${LABEL}" == "bootfs" ]]; then
         sed -i~ "s/\\(PARTUUID\\)=$OLD_DISK_ID-\\([0-9]*\\)/\\1=$DISK_ID-\\2/" $MOUNTPOINT/cmdline.txt
     fi
 
